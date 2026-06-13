@@ -1,4 +1,3 @@
-````markdown
 # Idempotency-Gateway (The "Pay-Once" Protocol)
 
 A RESTful idempotency layer that ensures each unique payment request is processed exactly once, even under client retries.
@@ -27,4 +26,3 @@ sequenceDiagram
         A-->>C: 422 "Idempotency key already used for a different request body."
     end
 ```
-````
