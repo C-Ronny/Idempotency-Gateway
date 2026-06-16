@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Header
+from fastapi import FastAPI, Header, Response
 from pydantic import BaseModel
 import asyncio
 
@@ -18,10 +18,11 @@ def read_root():
 
 
 @app.post("/process-payment")
-async def process_payment(body: PaymentRequest, idempotency_key: str = Header(...)):
-    # Check if the key exists in the store
-    if idempotency_key not in idempotency_store:
-        # US1: Happy Path
+async def process_payment(body: PaymentRequest, response: Response, idempotency_key: str = Header(...)):
+    
+    # US1: The First Transaction (Happy Path)
+    if idempotency_key not in idempotency_store: # Check if the key exists in the store
+        
         await asyncio.sleep(2)  # Simulate the 2-second processing delay
 
         amount = body.amount
@@ -38,3 +39,15 @@ async def process_payment(body: PaymentRequest, idempotency_key: str = Header(..
             "response": response_body,
         }
         return response_body
+    
+    # US2: The Duplicate Attempt (Idempotency Logic)
+    else:        
+        # assigns key to stored if it exists
+        stored = idempotency_store[idempotency_key] 
+
+        # if the incoming request is the same as the stored one
+        if stored["request"] == body.model_dump():
+            # Indicate it was a replayed response
+            response.headers["X-Cache-Hit"] = "true"
+            return stored["response"]
+
