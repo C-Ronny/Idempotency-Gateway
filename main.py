@@ -1,6 +1,10 @@
 from fastapi import FastAPI, Header, Response, HTTPException
 from pydantic import BaseModel
 import asyncio
+import time
+
+
+IDEMPOTENCY_TTL_SECONDS = 86400  # 24 hours
 
 class PaymentRequest(BaseModel):
     amount: float
@@ -27,8 +31,15 @@ async def process_payment(body: PaymentRequest, response: Response, idempotency_
         locks[idempotency_key] = asyncio.Lock()
 
     async with locks[idempotency_key]:
+
+        is_new = idempotency_key not in idempotency_store
+        is_expired = (
+            not is_new
+            and time.time() - idempotency_store[idempotency_key]["timestamp"] > IDEMPOTENCY_TTL_SECONDS
+        )
+
         # US1: The First Transaction (Happy Path)
-        if idempotency_key not in idempotency_store: # Check if the key exists in the store
+        if is_new or is_expired: 
             
             await asyncio.sleep(2)  # Simulate the 2-second processing delay
 
@@ -44,6 +55,7 @@ async def process_payment(body: PaymentRequest, response: Response, idempotency_
             idempotency_store[idempotency_key] = {
                 "request": body.model_dump(),
                 "response": response_body,
+                "timestamp": time.time(),
             }
             return response_body
         
