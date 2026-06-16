@@ -2,7 +2,7 @@
 
 A RESTful idempotency layer that ensures each unique payment request is processed exactly once, even under client retries.
 
-## Architecture Diagram
+## 1. Architecture Diagram
 
 ```mermaid
 sequenceDiagram
