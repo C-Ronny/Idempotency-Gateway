@@ -11,6 +11,9 @@ app = FastAPI()
 # Store for HTTP header value and response body
 idempotency_store ={}
 
+# dict to store locks
+locks = {}
+
 
 @app.get("/")
 def read_root():
@@ -19,41 +22,43 @@ def read_root():
 
 @app.post("/process-payment")
 async def process_payment(body: PaymentRequest, response: Response, idempotency_key: str = Header(...)):
-    
-    # US1: The First Transaction (Happy Path)
-    if idempotency_key not in idempotency_store: # Check if the key exists in the store
+
+    if idempotency_key not in locks:
+        locks[idempotency_key] = asyncio.Lock()
+
+    async with locks[idempotency_key]:
+        # US1: The First Transaction (Happy Path)
+        if idempotency_key not in idempotency_store: # Check if the key exists in the store
+            
+            await asyncio.sleep(2)  # Simulate the 2-second processing delay
+
+            amount = body.amount
+            if amount == int(amount):       # Check if it's a whole number
+                amount_str = int(amount)    # 100.0 -> 100
+            else:
+                amount_str = amount         # 100.50 -> 100.50
+            
+            response_body = {"message": f"Charged {amount_str} {body.currency}"}
+
+            # Save key -> {request, response} so future duplicates can be detected/replayed
+            idempotency_store[idempotency_key] = {
+                "request": body.model_dump(),
+                "response": response_body,
+            }
+            return response_body
         
-        await asyncio.sleep(2)  # Simulate the 2-second processing delay
+        else:        
+            # assigns key to stored if it exists
+            stored = idempotency_store[idempotency_key] 
 
-        amount = body.amount
-        if amount == int(amount):       # Check if it's a whole number
-            amount_str = int(amount)    # 100.0 -> 100
-        else:
-            amount_str = amount         # 100.50 -> 100.50
-        
-        response_body = {"message": f"Charged {amount_str} {body.currency}"}
+            # US2: The Duplicate Attempt (Idempotency Logic)        
+            if stored["request"] == body.model_dump(): # incoming request == stored one
+                # Indicate it was a replayed response
+                response.headers["X-Cache-Hit"] = "true"
+                return stored["response"]
 
-        # Save key -> {request, response} so future duplicates can be detected/replayed
-        idempotency_store[idempotency_key] = {
-            "request": body.model_dump(),
-            "response": response_body,
-        }
-        return response_body
-    
-    
-    else:        
-        # assigns key to stored if it exists
-        stored = idempotency_store[idempotency_key] 
-
-        # US2: The Duplicate Attempt (Idempotency Logic)        
-        if stored["request"] == body.model_dump(): # incoming request == stored one
-            # Indicate it was a replayed response
-            response.headers["X-Cache-Hit"] = "true"
-            return stored["response"]
-
-        # US3: Different Request, Same Key (Fraud/Error Check)        
-        raise HTTPException(
-            status_code=422, 
-            detail="Idempotency key already used for a different request body."
-        )
-
+            # US3: Different Request, Same Key (Fraud/Error Check)        
+            raise HTTPException(
+                status_code=422, 
+                detail="Idempotency key already used for a different request body."
+            )
