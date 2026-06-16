@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Header, Response
+from fastapi import FastAPI, Header, Response, HTTPException
 from pydantic import BaseModel
 import asyncio
 
@@ -40,14 +40,20 @@ async def process_payment(body: PaymentRequest, response: Response, idempotency_
         }
         return response_body
     
-    # US2: The Duplicate Attempt (Idempotency Logic)
+    
     else:        
         # assigns key to stored if it exists
         stored = idempotency_store[idempotency_key] 
 
-        # if the incoming request is the same as the stored one
-        if stored["request"] == body.model_dump():
+        # US2: The Duplicate Attempt (Idempotency Logic)        
+        if stored["request"] == body.model_dump(): # incoming request == stored one
             # Indicate it was a replayed response
             response.headers["X-Cache-Hit"] = "true"
             return stored["response"]
+
+        # US3: Different Request, Same Key (Fraud/Error Check)        
+        raise HTTPException(
+            status_code=422, 
+            detail="Idempotency key already used for a different request body."
+        )
 
